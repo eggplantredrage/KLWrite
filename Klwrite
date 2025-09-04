@@ -1,0 +1,305 @@
+import sys
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QTextEdit, QAction, QFileDialog,
+    QFontComboBox, QSpinBox, QToolBar, QTabWidget, QMessageBox,
+    QColorDialog, QInputDialog, QLineEdit, QDialog, QLabel, QPushButton, QVBoxLayout
+)
+from PyQt5.QtGui import QFont, QColor, QTextCursor, QTextListFormat, QTextCharFormat, QPageLayout, QTextDocument
+from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
+from PyQt5.QtCore import Qt
+
+# ------------------- FIND / REPLACE DIALOG -------------------
+class FindReplaceDialog(QDialog):
+    def __init__(self, editor):
+        super().__init__()
+        self.editor = editor
+        self.setWindowTitle("Find & Replace")
+        self.setFixedSize(300, 150)
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel("Find:"))
+        self.find_input = QLineEdit()
+        layout.addWidget(self.find_input)
+
+        layout.addWidget(QLabel("Replace:"))
+        self.replace_input = QLineEdit()
+        layout.addWidget(self.replace_input)
+
+        self.find_button = QPushButton("Find Next")
+        self.find_button.clicked.connect(self.find_text)
+        layout.addWidget(self.find_button)
+
+        self.replace_button = QPushButton("Replace")
+        self.replace_button.clicked.connect(self.replace_text)
+        layout.addWidget(self.replace_button)
+
+        self.replace_all_button = QPushButton("Replace All")
+        self.replace_all_button.clicked.connect(self.replace_all_text)
+        layout.addWidget(self.replace_all_button)
+
+        self.setLayout(layout)
+
+    def find_text(self):
+        text = self.find_input.text()
+        if not self.editor.find(text):
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.Start)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(text)
+
+    def replace_text(self):
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            cursor.insertText(self.replace_input.text())
+        self.find_text()
+
+    def replace_all_text(self):
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.Start)
+        self.editor.setTextCursor(cursor)
+        find_text = self.find_input.text()
+        replace_text = self.replace_input.text()
+        while self.editor.find(find_text):
+            cursor = self.editor.textCursor()
+            cursor.insertText(replace_text)
+
+# ------------------- KLWrite MAIN -------------------
+class KLWrite(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("KLWrite - Word Processor")
+        self.resize(1000, 700)
+
+        # Tab widget
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        # Status bar
+        self.status = self.statusBar()
+        self.status.showMessage("Ready")
+
+        # Menus and toolbar
+        self.create_menu()
+        self.create_toolbar()
+
+        # Initial tab
+        self.new_tab()
+
+    # ------------------- TAB MANAGEMENT -------------------
+    def new_tab(self, filename="Untitled"):
+        editor = QTextEdit()
+        editor.setFont(QFont("Times New Roman", 12))
+        editor.cursorPositionChanged.connect(self.update_status)
+        editor.setAcceptRichText(True)
+        tab_index = self.tabs.addTab(editor, filename)
+        self.tabs.setCurrentIndex(tab_index)
+
+    def close_tab(self):
+        self.tabs.removeTab(self.tabs.currentIndex())
+
+    def current_editor(self):
+        return self.tabs.currentWidget()
+
+    # ------------------- MENU -------------------
+    def create_menu(self):
+        menu = self.menuBar()
+
+        # File Menu
+        file_menu = menu.addMenu("File")
+        file_menu.addAction(QAction("New", self, triggered=lambda: self.new_tab()))
+        file_menu.addAction(QAction("Open...", self, triggered=self.open_file))
+        file_menu.addAction(QAction("Save", self, triggered=self.save_file))
+        file_menu.addAction(QAction("Save As...", self, triggered=self.save_file_as))
+        file_menu.addAction(QAction("Export PDF...", self, triggered=self.export_pdf))
+        file_menu.addSeparator()
+        file_menu.addAction(QAction("Print...", self, triggered=self.print_file))
+        file_menu.addSeparator()
+        file_menu.addAction(QAction("Close Tab", self, triggered=self.close_tab))
+        file_menu.addSeparator()
+        file_menu.addAction(QAction("Exit", self, triggered=self.close))
+
+        # Edit Menu
+        edit_menu = menu.addMenu("Edit")
+        edit_menu.addAction(QAction("Undo", self, triggered=lambda: self.current_editor().undo()))
+        edit_menu.addAction(QAction("Redo", self, triggered=lambda: self.current_editor().redo()))
+        edit_menu.addSeparator()
+        edit_menu.addAction(QAction("Cut", self, triggered=lambda: self.current_editor().cut()))
+        edit_menu.addAction(QAction("Copy", self, triggered=lambda: self.current_editor().copy()))
+        edit_menu.addAction(QAction("Paste", self, triggered=lambda: self.current_editor().paste()))
+        edit_menu.addAction(QAction("Select All", self, triggered=lambda: self.current_editor().selectAll()))
+        edit_menu.addSeparator()
+        edit_menu.addAction(QAction("Find / Replace", self, triggered=self.open_find_replace))
+
+        # Format Menu
+        format_menu = menu.addMenu("Format")
+        format_menu.addAction(QAction("Bold", self, triggered=self.set_bold))
+        format_menu.addAction(QAction("Italic", self, triggered=self.set_italic))
+        format_menu.addAction(QAction("Underline", self, triggered=self.set_underline))
+        format_menu.addAction(QAction("Text Color", self, triggered=self.set_text_color))
+        format_menu.addAction(QAction("Background Color", self, triggered=self.set_background_color))
+        format_menu.addSeparator()
+        format_menu.addAction(QAction("Align Left", self, triggered=lambda: self.set_alignment(Qt.AlignLeft)))
+        format_menu.addAction(QAction("Align Center", self, triggered=lambda: self.set_alignment(Qt.AlignCenter)))
+        format_menu.addAction(QAction("Align Right", self, triggered=lambda: self.set_alignment(Qt.AlignRight)))
+        format_menu.addAction(QAction("Justify", self, triggered=lambda: self.set_alignment(Qt.AlignJustify)))
+        format_menu.addSeparator()
+        format_menu.addAction(QAction("Insert Bullet List", self, triggered=self.insert_bullet))
+        format_menu.addAction(QAction("Insert Numbered List", self, triggered=self.insert_numbered))
+        format_menu.addSeparator()
+        format_menu.addAction(QAction("Zoom In", self, triggered=self.zoom_in))
+        format_menu.addAction(QAction("Zoom Out", self, triggered=self.zoom_out))
+
+        # Help Menu
+        help_menu = menu.addMenu("Help")
+        about_action = QAction("About KLWrite", self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+
+    # ------------------- TOOLBAR -------------------
+    def create_toolbar(self):
+        toolbar = QToolBar("Formatting")
+        self.addToolBar(toolbar)
+
+        # Font ComboBox
+        self.font_box = QFontComboBox()
+        self.font_box.currentFontChanged.connect(self.set_font)
+        toolbar.addWidget(self.font_box)
+
+        # Font Size
+        self.font_size = QSpinBox()
+        self.font_size.setRange(6, 72)
+        self.font_size.setValue(12)
+        self.font_size.valueChanged.connect(self.set_font_size)
+        toolbar.addWidget(self.font_size)
+
+        # Bold, Italic, Underline
+        toolbar.addAction(QAction("Bold", self, triggered=self.set_bold))
+        toolbar.addAction(QAction("Italic", self, triggered=self.set_italic))
+        toolbar.addAction(QAction("Underline", self, triggered=self.set_underline))
+
+    # ------------------- FILE HANDLING -------------------
+    def open_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "Text Documents (*.txt);;All Files (*)")
+        if path:
+            with open(path, 'r') as f:
+                text = f.read()
+            self.new_tab(filename=path.split("/")[-1])
+            self.current_editor().setText(text)
+
+    def save_file(self):
+        editor = self.current_editor()
+        current_tab = self.tabs.tabText(self.tabs.currentIndex())
+        if current_tab == "Untitled":
+            self.save_file_as()
+        else:
+            with open(current_tab, 'w') as f:
+                f.write(editor.toPlainText())
+
+    def save_file_as(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save File As", "", "Text Documents (*.txt);;All Files (*)")
+        if path:
+            with open(path, 'w') as f:
+                f.write(self.current_editor().toPlainText())
+            self.tabs.setTabText(self.tabs.currentIndex(), path.split("/")[-1])
+
+    def export_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf);;All Files (*)")
+        if path:
+            printer = QPrinter(QPrinter.HighResolution)
+            printer.setOutputFormat(QPrinter.PdfFormat)
+            printer.setOutputFileName(path)
+            self.current_editor().document().print(printer)
+
+    def print_file(self):
+        printer = QPrinter(QPrinter.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec_() == QPrintDialog.Accepted:
+            self.current_editor().document().print(printer)
+
+    # ------------------- FORMATTING -------------------
+    def set_font(self, font):
+        self.current_editor().setCurrentFont(font)
+
+    def set_font_size(self, size):
+        self.current_editor().setFontPointSize(size)
+
+    def set_bold(self):
+        fmt = self.current_editor().currentCharFormat()
+        fmt.setFontWeight(QFont.Bold if fmt.fontWeight() != QFont.Bold else QFont.Normal)
+        self.current_editor().setCurrentCharFormat(fmt)
+
+    def set_italic(self):
+        fmt = self.current_editor().currentCharFormat()
+        fmt.setFontItalic(not fmt.fontItalic())
+        self.current_editor().setCurrentCharFormat(fmt)
+
+    def set_underline(self):
+        fmt = self.current_editor().currentCharFormat()
+        fmt.setFontUnderline(not fmt.fontUnderline())
+        self.current_editor().setCurrentCharFormat(fmt)
+
+    def set_text_color(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            fmt = self.current_editor().currentCharFormat()
+            fmt.setForeground(color)
+            self.current_editor().setCurrentCharFormat(fmt)
+
+    def set_background_color(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            fmt = self.current_editor().currentCharFormat()
+            fmt.setBackground(color)
+            self.current_editor().setCurrentCharFormat(fmt)
+
+    def set_alignment(self, alignment):
+        self.current_editor().setAlignment(alignment)
+
+    def insert_bullet(self):
+        cursor = self.current_editor().textCursor()
+        cursor.insertList(QTextListFormat.ListDisc)
+
+    def insert_numbered(self):
+        cursor = self.current_editor().textCursor()
+        cursor.insertList(QTextListFormat.ListDecimal)
+
+    # ------------------- ZOOM -------------------
+    def zoom_in(self):
+        editor = self.current_editor()
+        editor.zoomIn(2)
+
+    def zoom_out(self):
+        editor = self.current_editor()
+        editor.zoomOut(2)
+
+    # ------------------- FIND / REPLACE -------------------
+    def open_find_replace(self):
+        dlg = FindReplaceDialog(self.current_editor())
+        dlg.exec_()
+
+    # ------------------- STATUS BAR -------------------
+    def update_status(self):
+        editor = self.current_editor()
+        cursor = editor.textCursor()
+        line = cursor.blockNumber() + 1
+        col = cursor.columnNumber() + 1
+        self.status.showMessage(f"Line: {line}, Column: {col}")
+
+    # ------------------- ABOUT -------------------
+    def show_about(self):
+        QMessageBox.information(
+            self,
+            "About KLWrite",
+            "KLWrite - Word Processor\n"
+            "Version: 0.2\n"
+            "Author: Kevin Leblanc\n"
+            "Full-featured Python-based word processor with PDF export and printing."
+        )
+
+# ------------------- RUN -------------------
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = KLWrite()
+    window.show()
+    sys.exit(app.exec_())
+
